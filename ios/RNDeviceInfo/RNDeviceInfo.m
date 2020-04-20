@@ -9,6 +9,7 @@
 #import "RNDeviceInfo.h"
 #import "DeviceUID.h"
 #if !(TARGET_OS_TV)
+#import <WebKit/WebKit.h>
 #import <LocalAuthentication/LocalAuthentication.h>
 #endif
 
@@ -21,6 +22,10 @@
 #endif
 
 @implementation RNDeviceInfo
+{
+    WKWebView *webView;
+    bool hasListeners;
+}
 
 @synthesize isEmulator;
 
@@ -167,13 +172,28 @@ RCT_EXPORT_MODULE(RNDeviceInfo)
 #endif
 }
 
-- (NSString*) userAgent
-{
+RCT_EXPORT_METHOD(getUserAgent:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
 #if TARGET_OS_TV
-    return @"not available";
+    reject(@"not_available_error", @"not available on tvOS", nil);
 #else
-    UIWebView* webView = [[UIWebView alloc] initWithFrame:CGRectZero];
-    return [webView stringByEvaluatingJavaScriptFromString:@"navigator.userAgent"];
+    __weak RNDeviceInfo *weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        __strong RNDeviceInfo *strongSelf = weakSelf;
+        if (strongSelf) {
+            // Save WKWebView (it might deallocate before we ask for user Agent)
+            strongSelf->webView = [[WKWebView alloc] init];
+
+            [strongSelf->webView evaluateJavaScript:@"window.navigator.userAgent;" completionHandler:^(id _Nullable result, NSError * _Nullable error) {
+                if (error) {
+                    reject(@"getUserAgentError", error.localizedDescription, error);
+                    return;
+                }
+                resolve([NSString stringWithFormat:@"%@", result]);
+                // Destroy the WKWebView after task is complete
+                strongSelf->webView = nil;
+            }];
+        }
+    });
 #endif
 }
 
